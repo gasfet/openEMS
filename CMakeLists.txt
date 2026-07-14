@@ -84,9 +84,19 @@ find_library(fparser_LIBRARIES
   HINTS ${FPARSER_ROOT_DIR}/lib${LIB_SUFFIX}
   NO_CMAKE_FIND_ROOT_PATH
 )
-message(STATUS "fparser: ${fparser_LIBRARIES}" )
+message(STATUS "fparser_LIBRARIES: ${fparser_LIBRARIES}" )
+
+find_path(fparser_INCLUDE_DIR
+  NAMES fparser.hh
+  HINTS ${FPARSER_ROOT_DIR}/include ${FPARSER_ROOT_DIR}/include/fparser
+  NO_CMAKE_FIND_ROOT_PATH
+)
+message(STATUS "fparser_INCLUDE_DIR: ${fparser_INCLUDE_DIR}" )
+
 #TODO test if fparser was found
 INCLUDE_DIRECTORIES( ${FPARSER_ROOT_DIR}/include ) 
+
+
 
 # CSXCAD
 # $ cmake -D CSXCAD_ROOT_DIR=~/opt/openEMS .
