@@ -173,11 +173,22 @@ void ProcessModeMatch::InitProcess()
 			pos[nPP] = start[nPP] + posPP;
 			discLine[nPP] = Op->GetDiscLine(nPP,pos[nPP],dualMesh);
 
-			// Apply local coordinate origin — shifts both weight functions and mode
-			// files into the port's local coordinate system.
-			double lx = discLine[0] - m_WeightOrigin[0];
-			double ly = discLine[1] - m_WeightOrigin[1];
-			double lz = discLine[2] - m_WeightOrigin[2];
+			// Convert the mesh coordinates to Cartesian first, then apply the local
+			// coordinate origin, then derive all variables from the shifted point.
+			// This must stay identical to CSPropExcitation::GetWeightedExcitation(),
+			// otherwise the excited and the probed mode differ and the mode match
+			// silently degrades.
+			double cart[3] = {discLine[0], discLine[1], discLine[2]};
+			if (m_Mesh_Type == CYLINDRICAL_MESH)
+			{
+				cart[0] = discLine[0] * cos(discLine[1]); // x = rho*cos(a)
+				cart[1] = discLine[0] * sin(discLine[1]); // y = rho*sin(a)
+			}
+
+			// m_WeightOrigin is a Cartesian point, for any mesh type
+			double lx = cart[0] - m_WeightOrigin[0];
+			double ly = cart[1] - m_WeightOrigin[1];
+			double lz = cart[2] - m_WeightOrigin[2];
 
 			var[0] = lx; // x
 			var[1] = ly; // y
@@ -187,15 +198,6 @@ void ProcessModeMatch::InitProcess()
 			var[5] = sqrt(lx*lx + ly*ly + lz*lz); // r
 			var[6] = asin(1)-atan(lz/var[3]); //theta (t)
 
-			if (m_Mesh_Type == CYLINDRICAL_MESH)
-			{
-				var[3] = discLine[0]; // rho (not shifted — cylindrical origin is axis)
-				var[4] = discLine[1]; // a
-				var[0] = discLine[0] * cos(discLine[1]); // x = r*cos(a)
-				var[1] = discLine[0] * sin(discLine[1]); // y = r*sin(a)
-				var[5] = sqrt(pow(discLine[0],2)+pow(discLine[2],2)); // r
-				var[6] = asin(1)-atan(var[2]/var[3]); //theta (t)
-			}
 			area = Op->GetNodeArea(m_ny,pos,dualMesh);
 
 			if (!m_WeightFile.empty())

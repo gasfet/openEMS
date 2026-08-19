@@ -1,3 +1,5 @@
+.. _tutorial_rcs_sphere:
+
 Metal Sphere Radar Cross Section
 ================================
 

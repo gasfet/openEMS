@@ -23,10 +23,14 @@ function [CSX,port] = AddWaveGuidePort( CSX, prio, portnr, start, stop, dir, E_W
 % - 'PortNamePrefix': a prefix to the port name
 % - 'E_WG_file': Name (and path) of the E-field mode file
 % - 'H_WG_file': Name (and path) of the H-field mode file
-% - 'local_origin': Local coordinate origin for mode/function evaluation.
-%                   Either a 3-element vector [x,y,z], 'corner' (min of
-%                   start/stop per axis) or 'center' (midpoint). Default: no
-%                   shift (global coordinates are passed unchanged).
+% - 'local_origin': Local coordinate origin for mode/function evaluation, as a
+%                   Cartesian point for any mesh type. Either a 3-element
+%                   vector [x,y,z], 'corner' (min of start/stop per axis) or
+%                   'center' (midpoint). Default: no shift (global coordinates
+%                   are passed unchanged). The 'corner'/'center' shorthands
+%                   derive from start/stop and are Cartesian-mesh only; on a
+%                   cylindrical mesh give an explicit vector ([0 0 z] keeps the
+%                   mode centered on the mesh axis).
 %
 % output:
 % - CSX:        modified CSX structure
@@ -114,8 +118,14 @@ end
 
 port.direction = dir_sign;
 
-% Resolve LocalOrigin shorthand
+% Resolve LocalOrigin shorthand. Note that start/stop are given in mesh
+% coordinates, so on a cylindrical mesh their corner/midpoint is a (rho,a,z)
+% triple, not the Cartesian point the origin has to be -- reject the shorthands
+% there rather than silently feeding cylindrical components to the solver.
 if ischar(LocalOrigin)
+    if (isfield(CSX.ATTRIBUTE,'CoordSystem') && (CSX.ATTRIBUTE.CoordSystem==1))
+        error('AddWaveGuidePort: local_origin ''%s'' is not supported on a cylindrical mesh; pass an explicit Cartesian [x,y,z] vector (use [0 0 z] to stay on the mesh axis)', LocalOrigin);
+    end
     if strcmpi(LocalOrigin, 'corner')
         LocalOrigin = min(start, stop);
     elseif strcmpi(LocalOrigin, 'center')
@@ -124,7 +134,8 @@ if ischar(LocalOrigin)
         error('AddWaveGuidePort: unknown local_origin value "%s"; use ''corner'', ''center'' or a [x,y,z] vector', LocalOrigin);
     end
 end
-% After this point: LocalOrigin is either [] (no shift) or a 3-element vector.
+% After this point: LocalOrigin is either [] (no shift) or a 3-element Cartesian
+% vector, which both the excitation and the mode-match probe interpret alike.
 
 % Verify there is contents in the waveguide mode functions
 modeFuncIsString = (~isempty(E_WG_func) & ~isempty(H_WG_func));

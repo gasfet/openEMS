@@ -111,14 +111,12 @@ cdef class openEMS:
         assert len(kw)==0, 'Unknown keyword arguments: "{}"'.format(kw)
 
     def __dealloc__(self):
+        # deletes the C++ structure too, which invalidates its wrapper for us
         del self.thisptr
-        if self.__CSX is not None:
-            self.__CSX.thisptr = NULL
 
     def Reset(self):
-        if self.__CSX is not None:
-            self.__CSX.thisptr = NULL
-            self.__CSX = None
+        # Reset destroys the structure, which invalidates its wrapper
+        self.__CSX = None
         self.thisptr.Reset()
 
     def SetNumberOfTimeSteps(self, val):
@@ -489,27 +487,32 @@ cdef class openEMS:
 
         Set the CSXCAD Continuous Structure for CAD data handling.
 
+        Notes
+        -----
+        Ownership is transferred: the C++ structure is destroyed by this class,
+        as is any structure set before. The python object stays usable, and is
+        invalidated once it is destroyed.
+
         See Also
         --------
         CSXCAD.ContinuousStructure
         """
         self.__CSX = CSX
+        # SetCSX claims ownership C++ side, which stops CSX from destroying it too
         self.thisptr.SetCSX(CSX.thisptr)
 
     def GetCSX(self):
         cdef _ContinuousStructure* ptr = self.thisptr.GetCSX()
-        cdef ContinuousStructure csx  # declare here
 
         if ptr == NULL:
             self.__CSX = None
             return None
 
+        # fromPtr gives a wrapper that does not own the structure and that is
+        # invalidated when we destroy it, and reuses the wrapper we were given
+        # in SetCSX if that is the same structure
         if self.__CSX is None or self.__CSX.thisptr != ptr:
-            if self.__CSX is not None:
-                self.__CSX.thisptr = NULL  # prevent dangling pointer on the old wrapper
-            csx = ContinuousStructure.__new__(ContinuousStructure)
-            csx.thisptr = ptr
-            self.__CSX = csx
+            self.__CSX = ContinuousStructure.fromPtr(ptr)
         return self.__CSX
 
     def AddEdges2Grid(self, dirs, primitives=None, properties=None, **kw):
@@ -667,7 +670,7 @@ cdef class openEMS:
     def Write2XML(self, file):
         """ Write2XML(file)
 
-        Write the openEMS FDTD setup and CSX data into an *.xml file.
+        Write the openEMS FDTD setup and CSX data into an \*.xml file.
         Can be run by the standalone openEMS binary.
 
         :param file: xml file name
@@ -677,12 +680,11 @@ cdef class openEMS:
     def ReadFromXML(self, file):
         """ ReadFromXML(file)
 
-        Read the openEMS FDTD setup and CSX data from an *.xml file.
+        Read the openEMS FDTD setup and CSX data from an \*.xml file.
         Warning: Will call reset before reading the file!
 
         :param file: xml file name
         """
-        if self.__CSX is not None:
-            self.__CSX.thisptr = NULL
-            self.__CSX = None
+        # resets first, which destroys the structure and invalidates its wrapper
+        self.__CSX = None
         return self.thisptr.ReadFromXML(file.encode('UTF-8'))

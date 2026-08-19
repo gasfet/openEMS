@@ -50,8 +50,10 @@ public:
 	void SetWeightFile(std::string fileName);
 	std::string GetWeightFile() {return m_WeightFile;};
 
-	//! Set the weight origin (drawing units). Coordinates passed to weight functions
-	//! and weight files are shifted by this offset before evaluation.
+	//! Set the weight origin as a \b Cartesian point (drawing units), for any mesh type.
+	//! Coordinates are converted to Cartesian, shifted by this offset, and only then are
+	//! x/y/z/rho/a/r/t derived, so that rho and a are measured from this point.
+	//! On a cylindrical mesh pass [0,0,z] to keep the mode centered on the mesh axis.
 	void SetWeightOrigin(double x, double y, double z) { m_WeightOrigin[0]=x; m_WeightOrigin[1]=y; m_WeightOrigin[2]=z; }
 
 	virtual int GetNumberOfIntegrals() const {return 2;}

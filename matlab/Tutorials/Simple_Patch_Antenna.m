@@ -1,20 +1,30 @@
 %% Simple Patch Antenna Tutorial
-%
-% Description at:
-% <http://openems.de/index.php/Tutorial:_Simple_Patch_Antenna>
+%% -----------------------------
+%% This tutorial simulates a microstrip patch antenna on a low-loss dielectric
+%% substrate, covering the full workflow from geometry setup to S-parameter
+%% extraction and far-field pattern analysis. It introduces the key openEMS
+%% building blocks — CSXCAD geometry, lumped port excitation, automatic meshing,
+%% and the near-field-to-far-field transformation — in a single self-contained
+%% example.
 %
 % Tested with
-%  - Matlab 2013a / Octave 4.0
-%  - openEMS v0.0.35
+%  - Octave 11.3
+%  - openEMS v0.37
 %
-% (C) 2010-2017 Thorsten Liebig <thorsten.liebig@uni-due.de>
-%%
+% (C) 2010-2026 Thorsten Liebig <thorsten.liebig@gmx.de>
 
 close all
 clear
 clc
 
 %% Setup the Simulation
+%% --------------------
+%% Define the physical dimensions and material properties of the patch,
+%% substrate, and ground plane. The patch ``width`` controls the resonant
+%% frequency — a narrower patch resonates higher — while the substrate
+%% permittivity ``epsR`` and thickness together set the effective wavelength
+%% inside the dielectric. The ``SimBox`` must be large enough that the
+%% absorbing boundaries sit well away from the antenna near-field region.
 physical_constants;
 unit = 1e-3; % all length in mm
 
@@ -39,6 +49,13 @@ feed.R = 50;     %feed resistance
 SimBox = [200 200 150];
 
 %% Setup FDTD Parameter & Excitation Function
+%% ------------------------------------------
+%% Configure the broadband Gaussian pulse and the first-order Mur absorbing
+%% boundary conditions. The centre frequency ``f0`` and 20 dB bandwidth ``fc``
+%% should bracket the expected patch resonance so that the full S-parameter
+%% response is captured in a single simulation run. Mur boundaries are chosen
+%% here because the antenna sits well inside the box; switch to PML if you
+%% need stronger absorption for a more compact simulation domain.
 f0 = 2e9; % center frequency
 fc = 1e9; % 20 dB corner frequency
 FDTD = InitFDTD( 'NrTs', 30000 );
@@ -47,6 +64,13 @@ BC = {'MUR' 'MUR' 'MUR' 'MUR' 'MUR' 'MUR'}; % boundary conditions
 FDTD = SetBoundaryCond( FDTD, BC );
 
 %% Setup CSXCAD Geometry & Mesh
+%% ----------------------------
+%% Build the complete antenna structure — patch metal, dielectric substrate,
+%% ground plane, lumped feed port, and the NF2FF integration surface — inside
+%% a single CSXCAD container. The mesh is generated with ``DetectEdges`` and
+%% ``SmoothMesh``: patch edges are resolved at lambda/50 to capture the patch
+%% current distribution accurately, while the surrounding free-space region
+%% uses the coarser lambda/20 spacing to keep the total cell count manageable.
 CSX = InitCSX();
 
 %initialize the mesh with the "air-box" dimensions
@@ -99,6 +123,12 @@ stop  = [mesh.x(end-3) mesh.y(end-3) mesh.z(end-3)];
 [CSX nf2ff] = CreateNF2FFBox(CSX, 'nf2ff', start, stop);
 
 %% Prepare and Run Simulation
+%% --------------------------
+%% Write the geometry and solver settings to an XML file, optionally preview
+%% the structure in AppCSXCAD, then launch the openEMS solver. Inspecting the
+%% geometry plot before running is strongly recommended: it lets you verify
+%% patch, substrate, and port placement immediately, without waiting for the
+%% solver to finish.
 Sim_Path = 'tmp_Patch_Ant';
 Sim_CSX = 'patch_ant.xml';
 
@@ -115,10 +145,22 @@ CSXGeomPlot( [Sim_Path '/' Sim_CSX] );
 RunOpenEMS( Sim_Path, Sim_CSX);
 
 %% Postprocessing & Plots
+%% ----------------------
+%% Read back the time-domain port voltages and currents recorded during the
+%% simulation and transform them to the frequency domain. ``calcPort`` computes
+%% the incident and reflected wave amplitudes at each frequency point; these
+%% are the basis for the impedance, S11, and radiation-efficiency calculations
+%% that follow.
 freq = linspace( max([1e9,f0-fc]), f0+fc, 501 );
 port = calcPort(port, Sim_Path, freq);
 
-%% Smith chart port reflection
+%% Smith Chart Port Reflection
+%% ---------------------------
+%% Plot the reflection coefficient on a Smith chart and as an S11 magnitude
+%% curve to characterise the antenna input match. A deep null in ``|S11|`` at the
+%% design frequency confirms resonance; the -10 dB bandwidth indicates the
+%% usable frequency range over which the antenna is well matched to the
+%% 50 Ohm feed.
 plotRefl(port, 'threshold', -10)
 title( 'reflection coefficient' );
 
@@ -146,6 +188,13 @@ ylabel( 'reflection coefficient |S_{11}|' );
 drawnow
 
 %% NFFF Plots
+%% ----------
+%% Invoke the near-field-to-far-field transformation to obtain the radiation
+%% pattern at the resonant frequency identified from the S11 minimum. Sampling
+%% at phi = 0 and 90 degrees reveals the two principal-plane cuts; the
+%% subsequent full-sphere calculation yields maximum directivity and radiation
+%% efficiency, showing how effectively the antenna converts accepted power into
+%% useful far-field radiation.
 %find resonance frequency from s11
 f_res_ind = find(s11==min(s11));
 f_res = freq(f_res_ind);

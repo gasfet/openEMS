@@ -20,6 +20,8 @@ import unittest
 import numpy as np
 
 from CSXCAD import ContinuousStructure
+from CSXCAD.CSProperties import CSPropExcitation, CSPropProbeBox
+from CSXCAD.CSRectGrid import CoordinateSystem
 from openEMS.ports import (LumpedPort, RectWGPort, WaveguidePort,
                             CircWGPort, CoaxialPort, StripLinePort, CPWPort, CurvePort)
 
@@ -54,6 +56,17 @@ def _make_csx_circ_3d():
     grid.SetDeltaUnit(1e-3)
     for ax in ('x', 'y', 'z'):
         grid.SetLines(ax, np.linspace(-350, 350, 15))
+    return csx
+
+
+def _make_csx_cylindrical():
+    """Cylindrical (rho, a, z) grid for a circular waveguide of radius 350 mm."""
+    csx = ContinuousStructure(CoordSystem=CoordinateSystem.CYLINDRICAL)
+    grid = csx.GetGrid()
+    grid.SetDeltaUnit(1e-3)
+    grid.SetLines('r', np.linspace(0, 350, 15))
+    grid.SetLines('a', np.linspace(0, 2 * np.pi, 25))
+    grid.SetLines('z', np.linspace(0, 2000, 15))
     return csx
 
 
@@ -582,6 +595,108 @@ class Test_CurvePort(unittest.TestCase):
                          start=[0, 0, -5], stop=[0, 0, 5],
                          PortNamePrefix='cv_')
         self.assertTrue(port.U_filenames[0].startswith('cv_'))
+
+
+class Test_WaveguidePort_LocalOrigin(unittest.TestCase):
+    """The mode origin must reach the excitation and both mode-match probes
+    identically. If the two ever diverge, the excited and the probed mode are
+    no longer the same field and the mode match silently degrades -- which is
+    exactly what a 'center' origin resolved in cylindrical mesh coordinates
+    used to do to Circ_Waveguide.
+    """
+
+    def setUp(self):
+        self.csx = _make_csx_circ()
+        self.start = [0, 0, 0]
+        self.stop  = [0, 0, 200]
+
+    @staticmethod
+    def _origins(port):
+        """Collect (weight origins, mode origins) from a port's properties."""
+        weight, mode = [], []
+        for prop in port.port_props:
+            if isinstance(prop, CSPropExcitation):
+                weight.append(prop.GetWeightOrigin())
+            elif isinstance(prop, CSPropProbeBox):
+                mode.append(prop.GetModeOrigin())
+        return weight, mode
+
+    def test_excitation_and_probes_share_the_same_origin(self):
+        port = CircWGPort(self.csx, port_nr=1, start=self.start, stop=self.stop,
+                          exc_dir='z', radius=320e-3, mode_name='TE11', excite=1)
+        weight, mode = self._origins(port)
+        self.assertEqual(len(weight), 1)   # one excitation
+        self.assertEqual(len(mode), 2)     # U and I mode-match probes
+        for origin in weight + mode:
+            np.testing.assert_allclose(origin, [0, 0, 100])
+
+    def test_center_shorthand_is_the_box_midpoint(self):
+        port = CircWGPort(self.csx, port_nr=1, start=[-10, 20, 0], stop=[10, 40, 200],
+                          exc_dir='z', radius=320e-3, mode_name='TE11', excite=1,
+                          local_origin='center')
+        weight, mode = self._origins(port)
+        for origin in weight + mode:
+            np.testing.assert_allclose(origin, [0, 30, 100])
+
+    def test_corner_shorthand_is_the_per_axis_minimum(self):
+        port = RectWGPort(self.csx, port_nr=1, start=[10, -20, 200], stop=[-10, 20, 0],
+                          exc_dir='z', a=100e-3, b=50e-3, mode_name='TE10', excite=1,
+                          local_origin='corner')
+        weight, mode = self._origins(port)
+        for origin in weight + mode:
+            np.testing.assert_allclose(origin, [-10, -20, 0])
+
+    def test_explicit_vector_is_passed_through(self):
+        port = CircWGPort(self.csx, port_nr=1, start=self.start, stop=self.stop,
+                          exc_dir='z', radius=320e-3, mode_name='TE11', excite=1,
+                          local_origin=[1.5, -2.5, 3.0])
+        weight, mode = self._origins(port)
+        for origin in weight + mode:
+            np.testing.assert_allclose(origin, [1.5, -2.5, 3.0])
+
+    def test_no_origin_leaves_everything_at_zero(self):
+        port = WaveguidePort(self.csx, port_nr=1, start=self.start, stop=self.stop,
+                             exc_dir='z', E_WG_func=['0', 'sin(x)', '0'],
+                             H_WG_func=['sin(x)', '0', '0'], kc=1.0, excite=1)
+        weight, mode = self._origins(port)
+        for origin in weight + mode:
+            np.testing.assert_allclose(origin, [0, 0, 0])
+
+    def test_passive_port_still_gets_probe_origins(self):
+        port = CircWGPort(self.csx, port_nr=2, start=self.start, stop=self.stop,
+                          exc_dir='z', radius=320e-3, mode_name='TE11', excite=0)
+        weight, mode = self._origins(port)
+        self.assertEqual(weight, [])       # passive: no excitation
+        self.assertEqual(len(mode), 2)
+        for origin in mode:
+            np.testing.assert_allclose(origin, [0, 0, 100])
+
+    def test_unknown_shorthand_raises(self):
+        with self.assertRaises(Exception):
+            CircWGPort(self.csx, port_nr=1, start=self.start, stop=self.stop,
+                       exc_dir='z', radius=320e-3, mode_name='TE11',
+                       local_origin='middle')
+
+    def test_shorthand_rejected_on_cylindrical_mesh(self):
+        # start/stop are mesh coordinates there, so their midpoint is a
+        # (rho,a,z) triple and not the Cartesian point the origin must be
+        csx = _make_csx_cylindrical()
+        for shorthand in ('center', 'corner'):
+            with self.assertRaises(Exception):
+                WaveguidePort(csx, port_nr=1, start=[0, 0, 100], stop=[350, 2*np.pi, 300],
+                              exc_dir='z', E_WG_func=['0', 'sin(a)', '0'],
+                              H_WG_func=['sin(a)', '0', '0'], kc=1.0, excite=1,
+                              local_origin=shorthand)
+
+    def test_explicit_vector_allowed_on_cylindrical_mesh(self):
+        csx = _make_csx_cylindrical()
+        port = WaveguidePort(csx, port_nr=1, start=[0, 0, 100], stop=[350, 2*np.pi, 300],
+                             exc_dir='z', E_WG_func=['0', 'sin(a)', '0'],
+                             H_WG_func=['sin(a)', '0', '0'], kc=1.0, excite=1,
+                             local_origin=[0, 0, 200])
+        weight, mode = self._origins(port)
+        for origin in weight + mode:
+            np.testing.assert_allclose(origin, [0, 0, 200])
 
 
 if __name__ == '__main__':

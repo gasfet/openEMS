@@ -1,35 +1,18 @@
 %
 % Tutorials / Patch Antenna Phased Array
 %
-% Description at:
-%
 % Tested with
-%  - Matlab 2011a
-%  - Octave 4.0
-%  - openEMS v0.0.33
+%  - Octave 11.3
+%  - openEMS v0.37
 %
-% References:
-% [1] Y. Yusuf and X. Gong, “A low-cost patch antenna phased array with
-%   analog beam steering using mutual coupling and reactive loading,” IEEE
-%   Antennas Wireless Propag. Lett., vol. 7, pp. 81–84, 2008.
-% [2] S. Otto, S. Held, A. Rennings, and K. Solbach,
-%   "Array and multiport antenna farfield simulation using
-%   EMPIRE, MATLAB and ADS," 39th European Microwave Conf. (EuMC 2009),
-%   Sept. 29 – Oct. 1, Rome, Italy, pp. 1547-1550, 2009.
-% [3] K. Karlsson, J. Carlsson, I. Belov, G. Nilsson, and P.-S. Kildal,
-%   “Optimization of antenna diversity gain by combining full-wave and
-%   circuit simulations,” in Proc. Second European Conference on Antennas
-%   and Propagation EuCAP 2007, 11–16 Nov. 2007, pp. 1–5.
-%
-% (C) 2013-2015 Thorsten Liebig <thorsten.liebig@gmx.de>
-
+% (C) 2013-2026 Thorsten Liebig <thorsten.liebig@gmx.de>
 
 close all
 clear
 clc
 
 % we need the "Cuircuit Toolbox"
-addpath('C:\CTB');
+%addpath('C:\CTB');
 % get the latest version from:
 % using git: https://github.com/thliebig/CTB
 % or zip: https://github.com/thliebig/CTB/archive/master.zip
@@ -56,9 +39,14 @@ C3 = 0.2e-12;
 
 Sim_Path_Root = ['tmp_' mfilename];
 
-%% calculate the full S-parameter set for all 3 patch antennas running 3
-% individual openEMS simulations in which one antenna is active and the
-% other two a passive (50 Ohm load) respectively
+%% Full S-Parameter Simulation Loop
+%% ----------------------------------
+%% Run three independent openEMS simulations, activating one element at a
+%% time while terminating the other two with 50 Ohm loads. This one-at-a-
+%% time strategy decouples the FDTD runs and yields the complete 3x3
+%% S-parameter and NF2FF dataset without requiring simultaneous multi-port
+%% excitation; port currents and far-field data at ``f0`` are retained for
+%% later superposition.
 xpos = [0 -41 41]; % x-center position of the 3 antennas
 caps = [0 0 0];
 resist = [50 50 50];
@@ -85,7 +73,13 @@ for n=1:3
     end
 end
 
-%% export sparameter to touchstone file
+%% Export S-Parameters to Touchstone
+%% -----------------------------------
+%% Write the full 3x3 S-parameter set to a Touchstone (.s3p) file so it
+%% can be imported into circuit simulators such as Qucs. Loading capacitors
+%% C2 and C3 can then be attached in the circuit schematic to explore
+%% beam-steering without re-running any FDTD simulations. Pre-computed port
+%% current ratios from Qucs are included here for cross-validation.
 write_touchstone('s',f,spara,[Sim_Path_Root '.s3p']);
 
 % instructions for Qucs:
@@ -102,7 +96,14 @@ I_qucs(3,1) = 2.92e-5-0.000914j;
 disp(['I2/I1: Qucs: ' num2str(I_qucs(2)/I_qucs(1)) ' (defined manually)'])
 disp(['I3/I1: Qucs: ' num2str(I_qucs(3)/I_qucs(1)) ' (defined manually)'])
 
-%% Calculate the currents of port 1 to 3 using Matlab [1]
+%% Port Current Calculation via Circuit Theory
+%% ---------------------------------------------
+%% Convert S-parameters to Z-parameters and analytically solve for port
+%% currents when capacitors C2 and C3 reactively load ports 2 and 3,
+%% exploiting mutual coupling to steer the beam [1]. This avoids a new FDTD
+%% run for every capacitor value and enables rapid design-space exploration;
+%% the reference input current at port 1 is set to 1 mA and currents at
+%% ports 2 and 3 follow directly from the Z-matrix equations.
 z = s2z(spara);
 
 Z2 = 1/(1j*2*pi*f0*C2);
@@ -122,7 +123,14 @@ disp(['I2/I1: Matlab: ' num2str(I_out(2)/I_out(1))])
 disp(['I3/I1: Matlab: ' num2str(I_out(3)/I_out(1))])
 
 
-%% do a reference simulation for the given C2/C3 values
+%% Reference Simulation for Verification
+%% ----------------------------------------
+%% Run a single openEMS simulation with C2 and C3 explicitly modeled as
+%% lumped elements inside the FDTD domain to validate the circuit-theory
+%% current prediction above. Good agreement between the FDTD port currents
+%% and the Z-parameter result confirms that the superposition method is
+%% accurate for this array; set ``do_reference_simulation = 0`` to skip
+%% this step if only the fast circuit approximation is needed.
 if (do_reference_simulation)
     active = [1 0 0];
     caps = [0 C2 C3];
@@ -141,7 +149,13 @@ if (do_reference_simulation)
     disp(['I3/I1: openEMS: ' num2str(I_ref(3)/I_ref(1))])
 end
 
-%% calculate and apply weighting coefficients [3]
+%% Superposition Weighting Coefficients
+%% --------------------------------------
+%% Compute the complex weights that map the per-element excitation currents
+%% from the three individual simulations to the desired port current
+%% distribution ``I_out``, following the superposition method of [3].
+%% Apply those weights to the individual far-field E-field vectors to
+%% construct the beam-steered array pattern without any additional FDTD run.
 % calculate
 coeff = I\I_out;
 
@@ -153,7 +167,13 @@ for n=1:3
     E_ff_theta = E_ff_theta + coeff(n)*nf2ff{n}.E_theta{1};
 end
 
-%% plot far-field patterns
+%% Far-Field Pattern Visualization
+%% ---------------------------------
+%% Plot the normalized far-field pattern reconstructed from the
+%% superposition and, if the reference simulation was run, overlay it for
+%% direct comparison. Close agreement between the two curves validates the
+%% entire workflow from S-parameter extraction through circuit-level beam
+%% steering to far-field synthesis.
 figure
 polar([-180:2:180]'*pi/180,abs(E_ff_phi(:))/max(abs(E_ff_phi(:))));
 hold on
@@ -162,5 +182,4 @@ if (do_reference_simulation)
 end
 title('normalized far-field pattern','Interpreter', 'none')
 legend('calculated','reference')
-
 

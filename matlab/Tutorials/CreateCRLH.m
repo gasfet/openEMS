@@ -1,15 +1,15 @@
 function [CSX mesh] = CreateCRLH(CSX, mesh, CRLH, resolution, translate)
 % function [CSX mesh] = CreateCRLH(CSX, mesh, CRLH, resolution, translate)
-% 
-% support function to create a CRLH unit cell
-% 
-% currently used by Tutorials/CRLH_Extraction
-% 
-% Tested with
-%  - Matlab 2009b
-%  - openEMS v0.0.23
 %
-% (C) 2011 Thorsten Liebig <thorsten.liebig@gmx.de>
+% support function to create a CRLH unit cell
+%
+% currently used by Tutorials/CRLH_Extraction
+%
+% Tested with
+%  - Octave 11.3
+%  - openEMS v0.37
+%
+% (C) 2011-2026 Thorsten Liebig <thorsten.liebig@gmx.de>
 
 if (nargin<5)
     translate = [0 0 0];

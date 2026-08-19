@@ -1,3 +1,5 @@
+.. _tutorial_rect_waveguide:
+
 Rectangular Waveguide
 =====================
 

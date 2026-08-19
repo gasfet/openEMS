@@ -35,3 +35,33 @@ Ports
         :members:
         :show-inheritance:
 
+    Circular Waveguide Port
+    -----------------------
+    .. autoclass:: CircWGPort
+        :members:
+        :show-inheritance:
+
+    Coaxial Port
+    ------------
+    .. autoclass:: CoaxialPort
+        :members:
+        :show-inheritance:
+
+    Stripline Port
+    --------------
+    .. autoclass:: StripLinePort
+        :members:
+        :show-inheritance:
+
+    Coplanar Waveguide Port
+    -----------------------
+    .. autoclass:: CPWPort
+        :members:
+        :show-inheritance:
+
+    Curve Port
+    ----------
+    .. autoclass:: CurvePort
+        :members:
+        :show-inheritance:
+

@@ -233,4 +233,6 @@ if (UNIX)
 endif ()
 INSTALL(FILES ${PUB_HEADERS} DESTINATION include/openEMS)
 INSTALL( DIRECTORY matlab DESTINATION share/openEMS )
+INSTALL( DIRECTORY python/Tutorials DESTINATION share/openEMS/python )
+INSTALL( DIRECTORY resources DESTINATION share/openEMS )
 # TODO mpi, tarball, debug, release

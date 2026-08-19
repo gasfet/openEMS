@@ -34,6 +34,10 @@ python/dist
 python/doc/_build
 python/doc/Tutorials/__*
 
+#octave/matlab
+!matlab/doc
+matlab/doc/Tutorials/__*
+
 # AI assistant configuration files (each contributor may maintain their own)
 CLAUDE.md
 .claude*

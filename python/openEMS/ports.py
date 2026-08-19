@@ -20,6 +20,7 @@ from __future__ import absolute_import
 import os
 import numpy as np
 from CSXCAD.Utilities import CheckNyDir
+from CSXCAD.CSRectGrid import CoordinateSystem
 from openEMS import utilities
 
 from openEMS.physical_constants import *
@@ -405,12 +406,18 @@ class WaveguidePort(Port):
         Required when E_WG_func / H_WG_func are ``None``.
     local_origin : array-like, 'corner', 'center', or None
         Coordinate origin used when evaluating mode functions or looking up
-        mode file data.  Coordinates are shifted by this amount before being
-        passed to the mode profile, so the profile can be defined relative to
-        a local origin rather than the global one.  Shorthands: ``'corner'``
-        resolves to ``min(start, stop)`` per axis; ``'center'`` resolves to
-        the midpoint.  Default ``None`` means no shift (global coordinates are
-        used as-is).
+        mode file data, given as a **Cartesian** point for any mesh type.
+        Coordinates are converted to Cartesian and shifted by this amount, and
+        only then are ``x``/``y``/``z``/``rho``/``a``/``r``/``t`` derived, so
+        that ``rho`` and ``a`` are measured from this point.  Both the
+        excitation and the two mode-match probes receive the same origin, which
+        is what keeps the excited and the probed mode identical.  Shorthands:
+        ``'corner'`` resolves to ``min(start, stop)`` per axis; ``'center'``
+        resolves to the midpoint.  Because they derive from ``start``/``stop``,
+        which are given in mesh coordinates, the shorthands are Cartesian-mesh
+        only -- on a cylindrical mesh pass an explicit vector (``[0, 0, z]``
+        keeps the mode centered on the mesh axis).  Default ``None`` means no
+        shift (global coordinates are used as-is).
 
     See Also
     --------
@@ -434,11 +441,23 @@ class WaveguidePort(Port):
         self.E_file = E_WG_file
         self.H_file = H_WG_file
 
-        # Resolve local_origin shorthand into a coordinate array (or keep None)
-        if local_origin == 'corner':
-            local_origin = np.minimum(start, stop)
-        elif local_origin == 'center':
-            local_origin = 0.5 * (np.array(start) + np.array(stop))
+        # Resolve local_origin shorthand into a Cartesian coordinate array (or
+        # keep None). start/stop are in mesh coordinates, so on a cylindrical
+        # mesh their corner/midpoint is a (rho,a,z) triple rather than the
+        # Cartesian point the origin has to be -- reject the shorthands there
+        # instead of silently handing cylindrical components to the solver.
+        if isinstance(local_origin, str):
+            if CSX.GetGrid().GetMeshType() == CoordinateSystem.CYLINDRICAL:
+                raise Exception("local_origin '{}' is not supported on a cylindrical mesh; "
+                                'pass an explicit Cartesian [x,y,z] vector '
+                                '(use [0,0,z] to stay on the mesh axis)'.format(local_origin))
+            if local_origin == 'corner':
+                local_origin = np.minimum(start, stop)
+            elif local_origin == 'center':
+                local_origin = 0.5 * (np.array(start) + np.array(stop))
+            else:
+                raise Exception("unknown local_origin value '{}'; use 'corner', "
+                                "'center' or an [x,y,z] vector".format(local_origin))
         elif local_origin is not None:
             local_origin = np.array(local_origin, dtype=float)
 

@@ -20,9 +20,11 @@ function [CSX,port] = AddCircWaveGuidePort( CSX, prio, portnr, start, stop, radi
 % optional (key/values):
 % * varargin:   optional additional excitations options, see also AddExcitation
 % * 'PortNamePrefix': a prefix to the port name
-% * 'local_origin': origin for mode function evaluation (default: 'center',
-%                   i.e. the midpoint of start/stop). The cylindrical mode
-%                   functions (rho, a) are evaluated relative to this point.
+% * 'local_origin': origin for mode function evaluation. On a Cartesian mesh
+%                   this defaults to 'center' (midpoint of start/stop), so
+%                   that rho/a are measured from the waveguide axis. On a
+%                   cylindrical mesh rho/a are the mesh coordinates already
+%                   and no shift is applied (nor should one be given).
 %
 % output:
 % * CSX:        modified CSX structure
@@ -100,6 +102,12 @@ func_Ha = [ num2str(-1/kc_draw^2,15) '/rho*cos(' angle ')*j1('  num2str(kc_draw,
 if (CSX.ATTRIBUTE.CoordSystem==1)
     func_E = {func_Er, func_Ea, 0};
     func_H = {func_Hr, func_Ha, 0};
+
+    % Cylindrical mesh: rho/a are the mesh coordinates themselves and are
+    % already measured from the mesh axis, which is the waveguide axis. The
+    % port box spans the full 0..2*pi in a, so its "center" is not a point on
+    % the axis and must not be used as local origin --> no shift at all.
+    origin_args = {};
 else
     func_Ex = ['(' func_Er '*cos(a) - ' func_Ea '*sin(a) ) * (rho<' num2str(radius/unit) ')'];
     func_Ey = ['(' func_Er '*sin(a) + ' func_Ea '*cos(a) ) * (rho<' num2str(radius/unit) ')'];
@@ -108,7 +116,11 @@ else
     func_Hx = ['(' func_Hr '*cos(a) - ' func_Ha '*sin(a) ) * (rho<' num2str(radius/unit) ')'];
     func_Hy = ['(' func_Hr '*sin(a) + ' func_Ha '*cos(a) ) * (rho<' num2str(radius/unit) ')'];
     func_H = {func_Hx, func_Hy, 0};
+
+    % Cartesian mesh: rho/a are derived from the transverse Cartesian
+    % coordinates, so shift them onto the waveguide axis = box center.
+    origin_args = {'local_origin', 'center'};
 end
 
-[CSX,port] = AddWaveGuidePort( CSX, prio, portnr, start, stop, 2, func_E, func_H, kc, exc_amp, 'local_origin', 'center', varargin{:} );
+[CSX,port] = AddWaveGuidePort( CSX, prio, portnr, start, stop, 2, func_E, func_H, kc, exc_amp, origin_args{:}, varargin{:} );
 

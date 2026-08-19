@@ -1,20 +1,22 @@
 %
 % Stripline to Microstrip Line Transition
 %
-% Description at:
-% <http://openems.de/index.php/Tutorial:_Stripline_to_MSL_Transition>
-%
 % Tested with
-%  - Octave 4.0
-%  - openEMS v0.0.35
+%  - Octave 11.3
+%  - openEMS v0.37
 %
-% (C) 2017 Thorsten Liebig <thorsten.liebig@gmx.de>
+% (C) 2017-2026 Thorsten Liebig <thorsten.liebig@gmx.de>
 
 close all
 clear
 clc
 
 %% Setup the Simulation
+%% --------------------
+%% Both conductors share an RO4350B substrate stack (εr = 3.66, lossy via
+%% Kappa at 2.45 GHz). The stripline is buried at z = 0 between two ground
+%% planes while the MSL runs on top; matching their impedances at the same
+%% trace width determines the via radius and surrounding clearance gap.
 physical_constants;
 unit = 1e-6; % specify everything in um
 
@@ -41,12 +43,24 @@ feed_shift = 2500;
 meas_shift = 5000;
 
 %% Setup FDTD Parameters & Excitation Function
+%% --------------------------------------------
+%% A Gaussian pulse centered at f_max/2 with half-bandwidth f_max/2 sweeps
+%% near-DC to 10 GHz in a single simulation run. PML_8 on the ±x port faces
+%% cleanly absorbs guided modes; MUR handles the open lateral and top sides;
+%% the PEC bottom is the stripline reference ground.
 FDTD = InitFDTD();
 FDTD = SetGaussExcite( FDTD, f_max/2, f_max/2);
 BC   = {'PML_8' 'PML_8' 'MUR' 'MUR' 'PEC' 'MUR'};
 FDTD = SetBoundaryCond( FDTD, BC );
 
 %% Setup CSXCAD Geometry & Mesh
+%% -----------------------------
+%% The 1/3-2/3 edge offset distributes two mesh lines per conductor edge to
+%% resolve near-singular fringe fields without over-refining. The x-mesh is
+%% built in two passes: first a fine zone around the via clearance gap, then
+%% coarser lines out to the port ends. Two polygon halves form the shared
+%% reference plane at z = strip_substrate_thickness with a circular cutout
+%% (radius = connect_via_gap) that prevents a short to the via conductor.
 CSX = InitCSX();
 edge_mesh  = [-1/3 2/3]*edge_res; % 1/3 - 2/3 rule for 2D metal edges
 
@@ -98,6 +112,11 @@ p_r = [0,  x1, x1, 0,  connect_via_gap*sin(theta_r) ;
 CSX = AddPolygon( CSX, 'gnd', 1, 'z', strip_substrate_thickness, p_r);
 
 %% Write/Show/Run the openEMS compatible xml-file
+%% -----------------------------------------------
+%% Serializes the geometry and FDTD settings to XML, optionally previews the
+%% structure in AppCSXCAD to verify the transition geometry, then launches the
+%% solver. A clean simulation directory avoids stale HDF5 field data corrupting
+%% the S-parameter extraction.
 Sim_Path = 'tmp';
 Sim_CSX = 'strip2msl.xml';
 
@@ -108,6 +127,11 @@ CSXGeomPlot( [Sim_Path '/' Sim_CSX] );
 RunOpenEMS( Sim_Path, Sim_CSX );
 
 %% Post-Processing
+%% ---------------
+%% calcPort performs a DFT on the time-domain probe recordings and de-embeds
+%% incident and reflected wave voltages referenced to 50 Ohm. S11 reveals the
+%% impedance match at the excitation port; S21 shows the total insertion loss
+%% of the stripline-to-MSL transition across the 0-10 GHz band.
 close all
 f = linspace( 0, f_max, 1601 );
 port = calcPort( port, Sim_Path, f, 'RefImpedance', 50);
@@ -123,5 +147,4 @@ legend('S_{11}','S_{21}');
 ylabel('S-Parameter (dB)','FontSize',12);
 xlabel('frequency (GHz) \rightarrow','FontSize',12);
 ylim([-40 2]);
-
 
