@@ -68,11 +68,29 @@ void SAR_Calculation::Reset()
 		delete m_cell_volume;
 		delete m_cell_density;
 	}
+	m_cleanup_cell_data = false;
 	m_cell_volume = NULL;
 	m_cell_density = NULL;
 	for (size_t i=0;i<m_local_cell_power_density.size();++i)
 		delete m_local_cell_power_density.at(i);
 	m_local_cell_power_density.clear();
+	m_local_cell_max_SAR.clear();
+	m_freq.clear();
+	m_power.clear();
+
+	m_autoRange_lim_SAR.clear();
+	m_autoRange_pad = 0;
+
+	m_maxSAR.clear();
+	m_maxSAR_Idx.clear();
+	m_cube_type.Reset();
+	m_cube_mass.Reset();
+	m_cube_volume.Reset();
+
+	m_Valid = 0;
+	m_Used = 0;
+	m_Unused = 0;
+	m_AirVoxel = 0;
 
 	for (size_t i=0;i<m_SAR.size();++i)
 		delete m_SAR.at(i);
@@ -177,7 +195,7 @@ void SAR_Calculation::AddEFieldAndConductivity(float freq, ArrayLib::ArrayNIJK<s
 	float* cell_vol = m_cell_volume->data();
 	float* cell_dens = m_cell_density->data();
 	float cond=0;
-	double max_lp=0;
+	double max_lsar=0;
 	unsigned int loc=0;
 	unsigned int pos[3];
 	double l_pow=0;
@@ -199,7 +217,8 @@ void SAR_Calculation::AddEFieldAndConductivity(float freq, ArrayLib::ArrayNIJK<s
 				l_pow += cond*abs((*e_field)(1, pos[0], pos[1], pos[2])) * abs((*e_field)(1, pos[0], pos[1], pos[2]));
 				l_pow += cond*abs((*e_field)(2, pos[0], pos[1], pos[2])) * abs((*e_field)(2, pos[0], pos[1], pos[2]));
 				l_pow *= 0.5*(cell_dens[loc]>0);
-				max_lp = max(max_lp, l_pow);
+				if (cell_dens[loc]>0)
+					max_lsar = max(max_lsar, l_pow/cell_dens[loc]);
 				power += l_pow*cell_vol[loc];
 				loc_cpd_data[loc] = l_pow;
 				++loc;
@@ -210,7 +229,7 @@ void SAR_Calculation::AddEFieldAndConductivity(float freq, ArrayLib::ArrayNIJK<s
 	m_local_cell_power_density.push_back(loc_cpd);
 	m_freq.push_back(freq);
 	m_power.push_back(power);
-	m_local_cell_max_power_density.push_back(max_lp);
+	m_local_cell_max_SAR.push_back(max_lsar);
 }
 
 void SAR_Calculation::AddEFieldAndJField(float freq, ArrayLib::ArrayNIJK<std::complex<float>>* e_field, ArrayLib::ArrayNIJK<std::complex<float>>* j_field)
@@ -219,7 +238,7 @@ void SAR_Calculation::AddEFieldAndJField(float freq, ArrayLib::ArrayNIJK<std::co
 	float* loc_cpd_data = loc_cpd->data();
 	float* cell_vol = m_cell_volume->data();
 	float* cell_dens = m_cell_density->data();
-	double max_lp=0;
+	double max_lsar=0;
 	unsigned int loc=0;
 	unsigned int pos[3];
 	double l_pow;
@@ -234,7 +253,8 @@ void SAR_Calculation::AddEFieldAndJField(float freq, ArrayLib::ArrayNIJK<std::co
 				l_pow += abs((*e_field)(1, pos[0], pos[1], pos[2])) * abs((*j_field)(1, pos[0], pos[1], pos[2]));
 				l_pow += abs((*e_field)(2, pos[0], pos[1], pos[2])) * abs((*j_field)(2, pos[0], pos[1], pos[2]));
 				l_pow *= 0.5*(cell_dens[loc]>0);
-				max_lp = max(max_lp, l_pow);
+				if (cell_dens[loc]>0)
+					max_lsar = max(max_lsar, l_pow/cell_dens[loc]);
 				power += l_pow*cell_vol[loc];
 				loc_cpd_data[loc] = l_pow;
 				++loc;
@@ -244,7 +264,7 @@ void SAR_Calculation::AddEFieldAndJField(float freq, ArrayLib::ArrayNIJK<std::co
 	m_local_cell_power_density.push_back(loc_cpd);
 	m_freq.push_back(freq);
 	m_power.push_back(power);
-	m_local_cell_max_power_density.push_back(max_lp);
+	m_local_cell_max_SAR.push_back(max_lsar);
 }
 
 bool SAR_Calculation::CalcSAR(unsigned int numThreads)
@@ -270,6 +290,9 @@ bool SAR_Calculation::CalcSAR(unsigned int numThreads)
 	m_duration = duration.count()/1000;
 	if (m_DebugLevel>0)
 		cout << "Processing Time: " << m_duration << "s" << endl;
+
+	if (rc)
+		CheckAutoRange();
 
 	return rc;
 }
@@ -491,12 +514,23 @@ bool SAR_Calculation::WriteToHDF5(HDF5_File_Writer &out_file, bool legacyHDF5)
 		std::vector<unsigned int> idx = {m_maxSAR_Idx.at(n)[0],m_maxSAR_Idx.at(n)[1],m_maxSAR_Idx.at(n)[2]};
 		if (out_file.WriteAttribute("/FieldData/FD/"+ss.str(),"maxSAR_idx", idx)==false)
 			cerr << "SAR_Calculation::WriteToHDF5: can't dump to file...! " << endl;
+		if (m_autoRange_lim_SAR.size()==m_freq.size())
+			if (out_file.WriteAttribute("/FieldData/FD/"+ss.str(),"autorange_threshold", m_autoRange_lim_SAR.at(n))==false)
+				cerr << "SAR_Calculation::WriteToHDF5: can't dump to file...! " << endl;
 	}
 
 	out_file.WriteAttribute("/FieldData/FD","valid_cubes",m_Valid);
 	out_file.WriteAttribute("/FieldData/FD","used_cubes",m_Used);
 	out_file.WriteAttribute("/FieldData/FD","unused_cubes",m_Unused);
 	out_file.WriteAttribute("/FieldData/FD","air_cubes",m_AirVoxel);
+
+	if (m_autoRange>0)
+	{
+		// the applied auto range, so that a result can be checked afterwards
+		// (the retained region itself is already given by the output mesh)
+		out_file.WriteAttribute("/FieldData/FD","autorange",m_autoRange);
+		out_file.WriteAttribute("/FieldData/FD","autorange_padding",m_autoRange_pad);
+	}
 
 	out_file.WriteAttribute("/","proc_time", m_duration);
 	return true;
@@ -542,6 +576,10 @@ void SAR_Calculation::InitSAR()
 	}
 
 	unsigned int out_num_lines[3] = {(unsigned int)m_cellIndices[0].size(),(unsigned int)m_cellIndices[1].size(),(unsigned int)m_cellIndices[2].size()};
+	// drop any cube stats of a previous calculation, they do not match this mesh
+	m_cube_type.Reset();
+	m_cube_mass.Reset();
+	m_cube_volume.Reset();
 	if ((m_record_cube_stats) && (m_freq.size()==1))
 	{
 		cout << "Enable Cube Statistics" << endl;
@@ -557,50 +595,113 @@ void SAR_Calculation::InitSAR()
 		ArrayLib::ArrayIJK<float>* sar = new ArrayLib::ArrayIJK<float>("sar", out_num_lines);
 		m_SAR.push_back(sar);
 	}
-	m_maxSAR.resize(m_freq.size(), 0);
-	m_maxSAR_Idx.resize(m_freq.size());
+	m_maxSAR.assign(m_freq.size(), 0);
+	m_maxSAR_Idx.assign(m_freq.size(), {0u,0u,0u});
 }
 
 void SAR_Calculation::DoAutoRange()
 {
+	m_autoRange_lim_SAR.clear();
+	m_autoRange_pad = 0;
 	if (m_autoRange<=0)
 		return;
 	if (m_DebugLevel>0)
-		cout << "Calculate auto range with " << m_autoRange << "dB from loc max." << endl;
+		cout << "Calculate auto range with " << m_autoRange << "dB from the local SAR max." << endl;
+
+	// The averaged SAR of a cube is the mass weighted mean of the local SAR of its
+	// cells and can therefore never exceed the largest local SAR inside that cube.
+	// This bound holds for the local SAR (W/kg) only and not for the local power
+	// density (W/m^3): a low density cell may carry a high local SAR at a low power
+	// density and must not be dropped here.
+	float lim_fac = std::pow(10.0, m_autoRange / -10.0);
+	for (size_t n=0;n<m_freq.size();++n)
+		m_autoRange_lim_SAR.push_back(lim_fac*m_local_cell_max_SAR.at(n));
 
 	std::array<unsigned int, 3> min_idx, max_idx;
 	min_idx = {m_numLines[0],m_numLines[1],m_numLines[2]};
 	max_idx = {0,0,0};
+	float* cell_dens = m_cell_density->data();
 	unsigned int loc=0;
-	float lim_fac = std::pow(10.0, m_autoRange / -10.0);
-	std::vector<float> lim_pow;
-	for (size_t n=0;n<m_freq.size();++n)
-		lim_pow.push_back(lim_fac*m_local_cell_max_power_density.at(n));
-
 	for (unsigned int i=0; i<m_numLines[0];++i)
 		for (unsigned int j=0; j<m_numLines[1];++j)
 			for (unsigned int k=0; k<m_numLines[2];++k)
 			{
-				for (size_t n=0;n<m_freq.size();++n)
-				{
-					if (m_local_cell_power_density.at(n)->data(loc) > lim_pow.at(n))
+				if (cell_dens[loc]>0)
+					for (size_t n=0;n<m_freq.size();++n)
 					{
-						min_idx[0] = min(min_idx[0], i);
-						min_idx[1] = min(min_idx[1], j);
-						min_idx[2] = min(min_idx[2], k);
-						max_idx[0] = max(max_idx[0], i+1);
-						max_idx[1] = max(max_idx[1], j+1);
-						max_idx[2] = max(max_idx[2], k+1);
+						if (m_local_cell_power_density.at(n)->data(loc)/cell_dens[loc] > m_autoRange_lim_SAR.at(n))
+						{
+							min_idx[0] = min(min_idx[0], i);
+							min_idx[1] = min(min_idx[1], j);
+							min_idx[2] = min(min_idx[2], k);
+							max_idx[0] = max(max_idx[0], i+1);
+							max_idx[1] = max(max_idx[1], j+1);
+							max_idx[2] = max(max_idx[2], k+1);
+						}
 					}
-				}
 				++loc;
 			}
+
+	for (int n=0;n<3;++n)
+		if (min_idx[n]>=max_idx[n])
+		{
+			cerr << __func__ << ": Warning, no cell above the auto range threshold, disabling the auto range..." << endl;
+			m_autoRange_lim_SAR.clear();
+			return;
+		}
+
+	// An averaging cube centered outside of the range found above may still reach
+	// into it and thus average a local SAR above the threshold. Pad the range by the
+	// half width of an air free averaging cube built from the lightest tissue that is
+	// present. Cubes containing air grow larger than that, so this is an estimate and
+	// not a hard bound.
+	if (m_avg_mass>0)
+	{
+		double dens_min = 0;
+		for (unsigned int n=0;n<m_cell_density->size();++n)
+			if ((cell_dens[n]>0) && ((dens_min==0) || (cell_dens[n]<dens_min)))
+				dens_min = cell_dens[n];
+		if (dens_min>0)
+			m_autoRange_pad = 0.5*pow(m_avg_mass/dens_min, 1.0/3.0);
+		for (int n=0;n<3;++n)
+		{
+			double dist=0;
+			while ((min_idx[n]>0) && (dist<m_autoRange_pad))
+				dist += m_cellWidth[n][--min_idx[n]];
+			dist=0;
+			while ((max_idx[n]<m_numLines[n]) && (dist<m_autoRange_pad))
+				dist += m_cellWidth[n][max_idx[n]++];
+		}
+		if (m_DebugLevel>0)
+			cout << "Auto range: padded by " << m_autoRange_pad << "m (min. density: " << dens_min << "kg/m^3)" << endl;
+	}
+
 	for (int n=0;n<3;++n)
 		SetSubRange(n, min_idx[n], max_idx[n]);
-	// cerr << "DoAutoRange m_numLines" << m_numLines[0] << ", " << m_numLines[1] << ", " << m_numLines[2] << endl;
-	// cerr << "DoAutoRange min" << min_idx[0] << ", " << min_idx[1] << ", " << min_idx[2] << endl;
-	// cerr << "DoAutoRange max" << max_idx[0] << ", " << max_idx[1] << ", " << max_idx[2] << endl;
-	}
+}
+
+void SAR_Calculation::CheckAutoRange()
+{
+	if ((m_autoRange<=0) || (m_autoRange_lim_SAR.size()!=m_freq.size()))
+		return;
+	bool trimmed = false;
+	for (int n=0;n<3;++n)
+		trimmed = trimmed || (m_cellIndices[n].size()<m_numLines[n]);
+	if (trimmed==false)
+		return;
+
+	// Every cube built from cells below the threshold averages below the threshold as
+	// well, so a peak above the threshold cannot be hidden by the dropped cells. If
+	// the peak that was found is itself below the threshold, that argument does not
+	// apply and the reported peak may not be the global one.
+	for (size_t n=0;n<m_freq.size();++n)
+		if (m_maxSAR.at(n) < m_autoRange_lim_SAR.at(n))
+			cerr << "SAR_Calculation::CheckAutoRange: Warning, the auto range threshold ("
+				 << m_autoRange_lim_SAR.at(n) << " W/kg) is above the peak SAR that was found ("
+				 << m_maxSAR.at(n) << " W/kg) at f=" << m_freq.at(n)
+				 << "Hz. The true peak may be outside of the evaluated range, "
+				 << "increase the auto range (dB) or disable it..." << endl;
+}
 
 bool SAR_Calculation::CalcLocalSAR()
 {

@@ -13,7 +13,17 @@ function CalcSAR(sar_fn, sar_out, varargin)
 % optional parameter:
 % - 'mass':       averaging mass in g (default is no averaging)
 % - 'method':     IEEE_C95_3, IEEE_62704 or SIMPLE (default)
-% - 'autoRange':  limit calculation to cells within N dB of peak power density
+%                 All three are real cubical mass averaging methods and
+%                 differ only in how strictly an averaging cube has to be
+%                 valid; SIMPLE accepts any cube reaching the target mass,
+%                 the IEEE methods reject cubes at a boundary and fill
+%                 those cells in from a neighbour. Has no effect if 'mass'
+%                 is 0, i.e. local SAR without any averaging.
+% - 'autoRange':  limit the calculation to the cells within N dB of the peak
+%                 local SAR, plus a padding of about one averaging cube. The
+%                 result is returned on this reduced mesh. This is a speedup
+%                 and not a guarantee to find the global peak, do not use it
+%                 for standard compliance work.
 % - 'numThreads': number of worker threads (default: all available)
 % - 'progress':   show progress output
 % - 'verbose':    verbose output
